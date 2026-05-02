@@ -25,39 +25,45 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* /chat-widget iframe embed: keep page visually empty; bubble comes from root layout */
+/* ================================
+   CHAT WIDGET (NORMAL MODE)
+================================ */
 html.chat-widget-embed,
 body.chat-widget-embed {
   background: transparent !important;
+  margin: 0 !important;
   min-height: 0 !important;
 }
 
-body.chat-widget-embed {
-  flex: 0 0 auto !important;
-}
-
-/*
- * Full-viewport iframe on WordPress: body is click-through except .computechs-chat-scope (see ChatWidget).
- * Only active on /wordpress-embed when WordPressEmbedShell mounts.
- */
+/* ================================
+   WORDPRESS EMBED MODE
+================================ */
 html.wp-chat-embed,
 body.wp-chat-embed {
   background: transparent !important;
-  min-height: 0 !important;
   margin: 0 !important;
+  overflow: hidden !important;
   color-scheme: normal !important;
 }
 
+/* IMPORTANT:
+   DO NOT disable pointer-events globally
+   (this was breaking your clickability)
+*/
 body.wp-chat-embed {
-  display: block !important;
-  flex: unset !important;
-  min-height: 0 !important;
-  overflow-x: clip !important;
-  overflow-y: visible !important;
-  pointer-events: none !important;
+  pointer-events: auto !important;
 }
 
-.wp-chat-embed .computechs-chat-scope,
-.wp-chat-embed .computechs-chat-scope * {
-  pointer-events: auto !important;
+/* ================================
+   CHAT WIDGET CONTAINER
+   (this is what receives clicks)
+================================ */
+.computechs-chat-scope {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 420px;
+  height: 650px;
+  z-index: 999999;
+  pointer-events: auto;
 }
