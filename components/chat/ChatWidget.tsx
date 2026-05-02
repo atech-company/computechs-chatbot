@@ -128,12 +128,15 @@ export function ChatWidget({ siteName }: { siteName: string }) {
           body: JSON.stringify({ messages: convo }),
         });
 
-        let data = {} as ChatApiResponse & { error?: string };
+        let data = { message: "", intent: "SUPPORT" as const } as ChatApiResponse & { error?: string };
+        const rawBody = await res.text();
         try {
-          data = (await res.json()) as ChatApiResponse & { error?: string };
+          if (rawBody) {
+            data = JSON.parse(rawBody) as ChatApiResponse & { error?: string };
+          }
         } catch {
           data = {
-            message: `Chat request failed (${res.status}). Check that the dev server is running and try again.`,
+            message: `Chat request failed (HTTP ${res.status}). Server did not return JSON — often a Hostinger CDN/proxy issue. Redeploy and check runtime logs.`,
             intent: "SUPPORT",
           };
         }

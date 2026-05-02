@@ -18,17 +18,15 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const fwdProto = request.headers.get("x-forwarded-proto");
+  // Trust only what the edge proxy says about the *client* connection.
+  // Never use request.nextUrl.protocol: behind TLS termination it is usually "http:" even when
+  // the visitor uses HTTPS — that caused 308 redirects on every POST/API call and broke /api/chat.
+  const fwdProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim()?.toLowerCase();
   const host =
     request.headers.get("x-forwarded-host")?.split(",")[0]?.trim() ??
     request.headers.get("host")?.split(",")[0]?.trim() ??
     "";
-  if (!host) {
-    return NextResponse.next();
-  }
-
-  const isHttpScheme = fwdProto === "http" || request.nextUrl.protocol === "http:";
-  if (!isHttpScheme) {
+  if (!host || fwdProto !== "http") {
     return NextResponse.next();
   }
 
