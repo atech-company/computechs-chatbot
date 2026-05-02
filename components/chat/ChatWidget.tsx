@@ -184,10 +184,11 @@ export function ChatWidget({
     setOpen((v) => !v);
   };
 
+  const zShell = wordpressEmbed ? "z-[2147483000]" : "z-[100]";
   const shellClass =
     open && fullscreen
-      ? "fixed inset-0 z-[100] flex flex-col bg-zinc-950/45 backdrop-blur-[2px] dark:bg-black/60"
-      : "fixed bottom-6 right-6 z-[100] flex flex-col items-end gap-3 bg-transparent";
+      ? `fixed inset-0 ${zShell} flex flex-col bg-zinc-950/45 backdrop-blur-[2px] dark:bg-black/60`
+      : `fixed bottom-6 right-6 ${zShell} flex flex-col items-end gap-3 bg-transparent`;
 
   return (
     <div className={[shellClass, wordpressEmbed ? "computechs-chat-scope" : ""].filter(Boolean).join(" ")}>
@@ -234,7 +235,7 @@ export function ChatWidget({
         label={open ? "Close chat assistant" : "Open chat assistant"}
         className={
           open && fullscreen
-            ? "absolute bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] z-[102] shadow-2xl"
+            ? `absolute bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] shadow-2xl ${wordpressEmbed ? "z-[2147483010]" : "z-[102]"}`
             : undefined
         }
       />

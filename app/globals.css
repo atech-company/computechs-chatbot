@@ -36,34 +36,33 @@ body.chat-widget-embed {
 }
 
 /* ================================
-   WORDPRESS EMBED MODE
+   WORDPRESS EMBED MODE (iframe on WP)
+   Clicks must pass through to WordPress outside the chat UI.
 ================================ */
 html.wp-chat-embed,
 body.wp-chat-embed {
   background: transparent !important;
   margin: 0 !important;
-  overflow: hidden !important;
+  min-height: 0 !important;
   color-scheme: normal !important;
 }
 
-/* IMPORTANT:
-   DO NOT disable pointer-events globally
-   (this was breaking your clickability)
-*/
 body.wp-chat-embed {
-  pointer-events: auto !important;
+  display: block !important;
+  flex: unset !important;
+  overflow: visible !important;
 }
 
-/* ================================
-   CHAT WIDGET CONTAINER
-   (this is what receives clicks)
-================================ */
-.computechs-chat-scope {
-  position: fixed;
-  bottom: 20px;
-  right: 20px;
-  width: 420px;
-  height: 650px;
-  z-index: 999999;
-  pointer-events: auto;
+/*
+ * Default: every node is non-interactive so events fall through the iframe
+ * to the WordPress page — except the chat subtree (.computechs-chat-scope).
+ * Do NOT add width/height/position here: ChatWidget already uses fixed layout.
+ */
+body.wp-chat-embed * {
+  pointer-events: none !important;
+}
+
+body.wp-chat-embed .computechs-chat-scope,
+body.wp-chat-embed .computechs-chat-scope * {
+  pointer-events: auto !important;
 }
