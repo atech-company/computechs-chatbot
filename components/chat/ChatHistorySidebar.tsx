@@ -17,13 +17,18 @@ export function ChatHistorySidebar({
 }) {
   return (
     <>
-      <div
-        className={`absolute inset-0 z-20 bg-black/30 backdrop-blur-[2px] transition-opacity md:hidden ${
-          open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
-        }`}
-        onClick={onClose}
-        aria-hidden={!open}
-      />
+      {/*
+        Only mount the scrim while open. In WordPress iframe mode, globals use
+        `body.wp-chat-embed .computechs-chat-scope * { pointer-events: auto !important }` so
+        a closed scrim with `opacity-0` would still receive hits and block the whole chat panel.
+      */}
+      {open ? (
+        <div
+          className="pointer-events-auto absolute inset-0 z-20 bg-black/30 opacity-100 backdrop-blur-[2px] md:hidden"
+          onClick={onClose}
+          aria-hidden={false}
+        />
+      ) : null}
       <aside
         className={`absolute inset-y-0 left-0 z-30 flex w-[min(88%,280px)] shrink-0 flex-col border-r border-zinc-200/80 bg-white/95 shadow-xl transition-transform dark:border-zinc-700 dark:bg-zinc-950/95 md:static md:z-auto md:w-56 md:translate-x-0 md:shadow-none ${
           open ? "translate-x-0" : "-translate-x-full md:translate-x-0"
