@@ -246,7 +246,7 @@ export function ChatWindow({
               </button>
             </div>
             <p className="mt-2 text-center text-[11px] text-zinc-400 dark:text-zinc-500">
-              Powered by ATECH TECHNOLOGYverify prices on the product page.
+              Powered by ATECH TECHNOLOG verify prices on the product page.
             </p>
           </footer>
         </div>
