@@ -188,7 +188,7 @@ export function ChatWidget({
   const shellClass =
     open && fullscreen
       ? `fixed inset-0 ${zShell} flex flex-col bg-zinc-950/45 backdrop-blur-[2px] dark:bg-black/60`
-      : `fixed bottom-6 right-6 ${zShell} flex flex-col items-end gap-3 bg-transparent`;
+      : `fixed inset-x-[max(0.5rem,env(safe-area-inset-left))] bottom-[max(0.75rem,env(safe-area-inset-bottom))] ${zShell} flex flex-col items-end gap-2 bg-transparent sm:inset-x-auto sm:bottom-6 sm:right-6 sm:gap-3`;
 
   return (
     <div className={[shellClass, wordpressEmbed ? "computechs-chat-scope" : ""].filter(Boolean).join(" ")}>

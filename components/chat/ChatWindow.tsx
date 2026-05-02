@@ -63,13 +63,13 @@ export function ChatWindow({
 
   /** Docked default = former “expanded” large panel; fullscreen fills the overlay parent. */
   const dockedSize =
-    "min-h-[min(560px,calc(100dvh-7rem))] max-h-[min(88dvh,calc(100dvh-5.5rem))] w-[min(96vw,560px)]";
+    "h-[min(72dvh,640px)] max-h-[calc(100dvh-5.25rem)] w-full sm:min-h-[min(560px,calc(100dvh-7rem))] sm:max-h-[min(88dvh,calc(100dvh-5.5rem))] sm:w-[min(96vw,560px)]";
   const fullscreenSize = "h-full min-h-0 w-full max-h-full rounded-none shadow-2xl sm:rounded-2xl md:rounded-3xl";
 
   if (minimized) {
     return (
       <div
-        className={`pointer-events-auto flex max-h-14 items-center justify-between gap-2 rounded-2xl border border-zinc-200/90 bg-white/95 px-3 py-2 shadow-2xl backdrop-blur-md dark:border-zinc-700 dark:bg-zinc-950/95 w-[min(96vw,560px)]`}
+        className={`pointer-events-auto flex max-h-14 w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200/90 bg-white/95 px-3 py-2 shadow-2xl backdrop-blur-md dark:border-zinc-700 dark:bg-zinc-950/95 sm:w-[min(96vw,560px)]`}
       >
         <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">{siteName}</p>
         <div className="flex shrink-0 items-center gap-1">
@@ -96,7 +96,7 @@ export function ChatWindow({
   return (
     <div
       className={`pointer-events-auto flex overflow-hidden border border-zinc-200/90 bg-white/95 shadow-2xl backdrop-blur-md transition-all duration-300 ease-out dark:border-zinc-700 dark:bg-zinc-950/95 ${
-        fullscreen ? fullscreenSize : `${dockedSize} rounded-3xl`
+        fullscreen ? fullscreenSize : `${dockedSize} rounded-2xl sm:rounded-3xl`
       }`}
     >
       <ChatHistorySidebar
