@@ -35,3 +35,29 @@ body.chat-widget-embed {
 body.chat-widget-embed {
   flex: 0 0 auto !important;
 }
+
+/*
+ * Full-viewport iframe on WordPress: body is click-through except .computechs-chat-scope (see ChatWidget).
+ * Only active on /wordpress-embed when WordPressEmbedShell mounts.
+ */
+html.wp-chat-embed,
+body.wp-chat-embed {
+  background: transparent !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  color-scheme: normal !important;
+}
+
+body.wp-chat-embed {
+  display: block !important;
+  flex: unset !important;
+  min-height: 0 !important;
+  overflow-x: clip !important;
+  overflow-y: visible !important;
+  pointer-events: none !important;
+}
+
+.wp-chat-embed .computechs-chat-scope,
+.wp-chat-embed .computechs-chat-scope * {
+  pointer-events: auto !important;
+}

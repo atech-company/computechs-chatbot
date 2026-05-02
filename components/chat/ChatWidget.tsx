@@ -19,7 +19,14 @@ function titleFromFirstUser(text: string) {
   return t.length > 52 ? `${t.slice(0, 52)}…` : t;
 }
 
-export function ChatWidget({ siteName }: { siteName: string }) {
+export function ChatWidget({
+  siteName,
+  wordpressEmbed = false,
+}: {
+  siteName: string;
+  /** True when rendered inside /wordpress-embed — click-through iframe on WordPress. */
+  wordpressEmbed?: boolean;
+}) {
   const [hydrated, setHydrated] = useState(false);
   const [sessions, setSessions] = useState<ChatSession[]>(() => []);
   const [activeId, setActiveId] = useState<string>("");
@@ -183,7 +190,7 @@ export function ChatWidget({ siteName }: { siteName: string }) {
       : "fixed bottom-6 right-6 z-[100] flex flex-col items-end gap-3 bg-transparent";
 
   return (
-    <div className={shellClass}>
+    <div className={[shellClass, wordpressEmbed ? "computechs-chat-scope" : ""].filter(Boolean).join(" ")}>
       {open ? (
         <div
           className={[
