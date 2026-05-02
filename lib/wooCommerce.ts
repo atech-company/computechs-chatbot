@@ -53,6 +53,73 @@ async function wooGet<T>(path: string, params: Record<string, string | number | 
   return (await res.json()) as T;
 }
 
+async function wooPost<T>(path: string, body: unknown): Promise<T> {
+  if (!isWooConfigured()) {
+    throw new Error("WooCommerce environment variables are not set.");
+  }
+  const res = await fetch(buildUrl(path, {}), {
+    method: "POST",
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`WooCommerce HTTP ${res.status}: ${text.slice(0, 300)}`);
+  }
+  return (await res.json()) as T;
+}
+
+const CHAT_ORDER_EMAIL = () =>
+  process.env.WOOCOMMERCE_CHAT_ORDER_EMAIL?.trim() || "chat-orders@noreply.invalid";
+
+/**
+ * Create a pending WooCommerce order from chat-collected details.
+ * Product id is verified against the catalog before posting.
+ */
+export async function createOrderFromChat(params: {
+  productId: number;
+  quantity: number;
+  firstName: string;
+  lastName: string;
+  phone: string;
+}): Promise<{ id: number; number: string }> {
+  const product = await fetchProductById(params.productId);
+  if (!product) {
+    throw new Error("Product not found or not available.");
+  }
+
+  const qty = Math.min(50, Math.max(1, Math.floor(params.quantity)));
+  const digits = params.phone.replace(/\D/g, "");
+  if (digits.length < 6) {
+    throw new Error("Phone number looks too short.");
+  }
+
+  const body = {
+    status: "pending",
+    payment_method: "other",
+    payment_method_title: "AI chat — payment pending",
+    set_paid: false,
+    billing: {
+      first_name: params.firstName.trim().slice(0, 100) || "Customer",
+      last_name: params.lastName.trim().slice(0, 100) || "-",
+      email: CHAT_ORDER_EMAIL(),
+      phone: params.phone.trim().slice(0, 60),
+    },
+    line_items: [{ product_id: params.productId, quantity: qty }],
+    customer_note: `Chat order — ${product.name} × ${qty}. Confirm details with customer by phone.`,
+  };
+
+  const raw = await wooPost<{ id: number; number?: string }>("orders", body);
+  return {
+    id: raw.id,
+    number: String(raw.number ?? raw.id),
+  };
+}
+
 export function mapProduct(p: WooProductRaw): WooProductSummary {
   return {
     id: p.id,

@@ -36,6 +36,7 @@ export async function POST(req: Request) {
           intent: "SUPPORT" as const,
           products: [],
           quotation: null,
+          orderCreated: null,
         },
         { status: 503 },
       );
@@ -71,6 +72,7 @@ export async function POST(req: Request) {
       intent,
       products: result.products ?? [],
       quotation: result.quotation ?? null,
+      orderCreated: result.orderCreated ?? null,
     });
   } catch (e) {
     const msg = extractErrorMessage(e);
@@ -95,6 +97,7 @@ export async function POST(req: Request) {
         intent: "SUPPORT" as const,
         products: [],
         quotation: null,
+        orderCreated: null,
       },
       { status },
     );

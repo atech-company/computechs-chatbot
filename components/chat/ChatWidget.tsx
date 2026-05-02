@@ -150,6 +150,7 @@ export function ChatWidget({ siteName }: { siteName: string }) {
           createdAt: Date.now(),
           products: data.products?.length ? data.products : undefined,
           quotation: data.quotation ?? undefined,
+          orderCreated: data.orderCreated ?? undefined,
           intent: data.intent,
         };
 

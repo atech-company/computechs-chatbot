@@ -1,6 +1,11 @@
 import OpenAI from "openai";
 import { faqBlob } from "@/lib/faq";
-import { fetchCategories, fetchProducts, isWooConfigured } from "@/lib/wooCommerce";
+import {
+  createOrderFromChat,
+  fetchCategories,
+  fetchProducts,
+  isWooConfigured,
+} from "@/lib/wooCommerce";
 import type {
   Intent,
   QuotationLine,
@@ -142,7 +147,12 @@ export async function runAssistantTurn(params: {
   messages: { role: "user" | "assistant"; content: string }[];
   searchQuery: string;
   lastUserMessage: string;
-}): Promise<{ text: string; products?: WooProductSummary[]; quotation?: QuotationPayload | null }> {
+}): Promise<{
+  text: string;
+  products?: WooProductSummary[];
+  quotation?: QuotationPayload | null;
+  orderCreated?: { id: number; number: string } | null;
+}> {
   const client = getClient();
   const { products, categories, wooNote } = await loadCatalogContext(
     params.intent,
@@ -194,11 +204,12 @@ Always end with EXACTLY one machine-readable line (no markdown fences):
 QUOTATION_JSON:{"customerName":string|null,"currency":"USD"|"EUR"|"LBP"|string,"lines":[{"name":string,"quantity":number,"unitPrice":number,"lineTotal":number,"productId":number|undefined}],"notes":string,"subtotal":number}
 Compute lineTotal = quantity*unitPrice and subtotal = sum(lineTotal). Use WooCommerce prices from catalog when productId matches. If unknown customer name use null.`;
   } else {
-    instruction = `Intent: ACTION (order).
-Guide step-by-step to collect: full name, phone, desired product (must match catalog JSON item if possible — confirm id/name), quantity, delivery preference if relevant.
-Do not confirm payment captured — only confirm you will relay details to the team.
-Keep one question per turn when info missing.
-Catalog JSON for reference: ${productJson}`;
+    instruction = `Intent: ACTION (place order in WooCommerce).
+Guide step-by-step: which product (must match catalog JSON by id + name), quantity, customer full name (split into first/last if known), phone (with country code when possible).
+Ask one missing field per turn. Use only real product ids from catalog JSON.
+When—and only when—you have productId, quantity (1–50), firstName, lastName (use "" if unknown), and phone, finish with a short thank-you line and add EXACTLY one final machine-readable line (no markdown fences):
+ORDER_JSON:{"productId":number,"quantity":number,"firstName":string,"lastName":string,"phone":string}
+The server will create a **pending** WooCommerce order; mention that payment is still required. Do not output ORDER_JSON until all fields are confirmed.`;
   }
 
   const sys = `${baseRules}\n\n${instruction}\nCatalog JSON:\n${productJson}`;
@@ -211,12 +222,43 @@ Catalog JSON for reference: ${productJson}`;
 
   let text = res.choices[0]?.message?.content ?? "Sorry — I could not generate a reply. Please try again.";
   let quotation: QuotationPayload | null = null;
+  let orderCreated: { id: number; number: string } | null = null;
 
   if (params.intent === "QUOTATION") {
     const parsed = extractQuotationJson(text);
     text = stripQuotationJsonLine(text);
     if (parsed) {
       quotation = buildQuotationPayload(parsed, products);
+    }
+  }
+
+  if (params.intent === "ACTION") {
+    const orderPayload = extractOrderJson(text);
+    text = stripOrderJsonLine(text);
+    if (orderPayload && isWooConfigured()) {
+      const pid = Number(orderPayload.productId);
+      let qty = Number(orderPayload.quantity);
+      if (!Number.isFinite(qty) || qty < 1) qty = 1;
+      const firstName = typeof orderPayload.firstName === "string" ? orderPayload.firstName : "";
+      const lastName = typeof orderPayload.lastName === "string" ? orderPayload.lastName : "";
+      const phone = typeof orderPayload.phone === "string" ? orderPayload.phone : "";
+      if (Number.isFinite(pid) && pid > 0 && Number.isFinite(qty) && firstName.trim() && phone.trim()) {
+        try {
+          orderCreated = await createOrderFromChat({
+            productId: pid,
+            quantity: qty,
+            firstName: firstName.trim(),
+            lastName: lastName.trim(),
+            phone: phone.trim(),
+          });
+          text += `\n\n✅ WooCommerce **order #${orderCreated.number}** was created (pending payment). Our team may contact you to confirm.`;
+        } catch (e) {
+          const hint = e instanceof Error ? e.message : "Error";
+          text += `\n\n⚠️ Could not create the order automatically (${hint}). Please check out on the website or call the store.`;
+        }
+      }
+    } else if (orderPayload && !isWooConfigured()) {
+      text += `\n\n⚠️ Orders cannot be created automatically because WooCommerce API is not configured on the server.`;
     }
   }
 
@@ -227,6 +269,7 @@ Catalog JSON for reference: ${productJson}`;
     return {
       text,
       products: picked.length ? picked : pickProductsForCards(params.intent, products),
+      orderCreated,
     };
   }
 
@@ -236,8 +279,38 @@ Catalog JSON for reference: ${productJson}`;
     text,
     products: cards.length ? cards : undefined,
     quotation,
+    orderCreated,
   };
 }
+
+function stripOrderJsonLine(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("ORDER_JSON:"))
+    .join("\n")
+    .trimEnd();
+}
+
+function extractOrderJson(text: string): OrderJsonParsed | null {
+  const lines = text.split("\n");
+  const row = [...lines].reverse().find((l) => l.includes("ORDER_JSON:"));
+  if (!row) return null;
+  const idx = row.indexOf("ORDER_JSON:");
+  const jsonPart = row.slice(idx + "ORDER_JSON:".length).trim();
+  try {
+    return JSON.parse(jsonPart) as OrderJsonParsed;
+  } catch {
+    return null;
+  }
+}
+
+type OrderJsonParsed = {
+  productId?: number;
+  quantity?: number;
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+};
 
 function stripQuotationJsonLine(text: string): string {
   return text

@@ -35,6 +35,12 @@ export interface QuotationPayload {
   createdAt: string;
 }
 
+/** Set when ACTION flow successfully created a WooCommerce order via REST API. */
+export interface ChatOrderCreated {
+  id: number;
+  number: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;
@@ -43,6 +49,7 @@ export interface ChatMessage {
   products?: WooProductSummary[];
   quotation?: QuotationPayload | null;
   intent?: Intent;
+  orderCreated?: ChatOrderCreated | null;
 }
 
 export interface ChatSession {
@@ -57,5 +64,6 @@ export interface ChatApiResponse {
   intent: Intent;
   products?: WooProductSummary[];
   quotation?: QuotationPayload | null;
+  orderCreated?: ChatOrderCreated | null;
   error?: string;
 }

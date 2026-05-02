@@ -246,7 +246,7 @@ export function ChatWindow({
               </button>
             </div>
             <p className="mt-2 text-center text-[11px] text-zinc-400 dark:text-zinc-500">
-              Powered by WooCommerce catalog + OpenAI — verify prices on the product page.
+              Powered by ATECH TECHNOLOGYverify prices on the product page.
             </p>
           </footer>
         </div>
@@ -269,6 +269,11 @@ function MessageBubble({ message: m }: { message: ChatMessage }) {
         <p className="whitespace-pre-wrap break-words">{m.content}</p>
         {!isUser && m.products?.length ? <ProductRecommendations products={m.products} /> : null}
         {!isUser && m.quotation ? <QuotationCard quotation={m.quotation} /> : null}
+        {!isUser && m.orderCreated ? (
+          <div className="mt-3 rounded-xl border border-emerald-300/90 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-950 dark:border-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-50">
+            WooCommerce order <span className="font-mono">#{m.orderCreated.number}</span> created (pending in admin).
+          </div>
+        ) : null}
       </div>
     </div>
   );
