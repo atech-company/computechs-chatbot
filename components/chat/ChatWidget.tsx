@@ -161,6 +161,7 @@ export function ChatWidget({
           products: data.products?.length ? data.products : undefined,
           quotation: data.quotation ?? undefined,
           orderCreated: data.orderCreated ?? undefined,
+          generalInfo: data.generalInfo?.length ? data.generalInfo : undefined,
           intent: data.intent,
         };
 

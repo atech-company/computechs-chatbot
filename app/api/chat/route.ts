@@ -37,6 +37,7 @@ export async function POST(req: Request) {
           products: [],
           quotation: null,
           orderCreated: null,
+          generalInfo: [],
         },
         { status: 503 },
       );
@@ -73,6 +74,7 @@ export async function POST(req: Request) {
       products: result.products ?? [],
       quotation: result.quotation ?? null,
       orderCreated: result.orderCreated ?? null,
+      generalInfo: result.generalInfo ?? [],
     });
   } catch (e) {
     const msg = extractErrorMessage(e);
@@ -98,6 +100,7 @@ export async function POST(req: Request) {
         products: [],
         quotation: null,
         orderCreated: null,
+        generalInfo: [],
       },
       { status },
     );

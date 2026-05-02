@@ -6,6 +6,7 @@ import { ChatHistorySidebar } from "@/components/chat/ChatHistorySidebar";
 import { QuotationCard } from "@/components/chat/QuotationCard";
 import { ProductRecommendations } from "@/components/chat/ProductRecommendations";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
+import { GeneralInfoCards } from "@/components/chat/GeneralInfoCards";
 
 export function ChatWindow({
   siteName,
@@ -269,6 +270,7 @@ function MessageBubble({ message: m }: { message: ChatMessage }) {
         <p className="whitespace-pre-wrap break-words">{m.content}</p>
         {!isUser && m.products?.length ? <ProductRecommendations products={m.products} /> : null}
         {!isUser && m.quotation ? <QuotationCard quotation={m.quotation} /> : null}
+        {!isUser && m.generalInfo?.length ? <GeneralInfoCards items={m.generalInfo} /> : null}
         {!isUser && m.orderCreated ? (
           <div className="mt-3 rounded-xl border border-emerald-300/90 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-950 dark:border-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-50">
             WooCommerce order <span className="font-mono">#{m.orderCreated.number}</span> created (pending in admin).

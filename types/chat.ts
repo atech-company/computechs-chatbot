@@ -41,6 +41,16 @@ export interface ChatOrderCreated {
   number: string;
 }
 
+export type GeneralInfoKind = "whatsapp" | "email" | "location";
+
+export interface GeneralInfoItem {
+  kind: GeneralInfoKind;
+  title: string;
+  value: string;
+  url: string;
+  ctaLabel: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;
@@ -50,6 +60,7 @@ export interface ChatMessage {
   quotation?: QuotationPayload | null;
   intent?: Intent;
   orderCreated?: ChatOrderCreated | null;
+  generalInfo?: GeneralInfoItem[];
 }
 
 export interface ChatSession {
@@ -65,5 +76,6 @@ export interface ChatApiResponse {
   products?: WooProductSummary[];
   quotation?: QuotationPayload | null;
   orderCreated?: ChatOrderCreated | null;
+  generalInfo?: GeneralInfoItem[];
   error?: string;
 }

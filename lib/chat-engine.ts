@@ -7,6 +7,7 @@ import {
   isWooConfigured,
 } from "@/lib/wooCommerce";
 import type {
+  GeneralInfoItem,
   Intent,
   QuotationLine,
   QuotationPayload,
@@ -152,7 +153,13 @@ export async function runAssistantTurn(params: {
   products?: WooProductSummary[];
   quotation?: QuotationPayload | null;
   orderCreated?: { id: number; number: string } | null;
+  generalInfo?: GeneralInfoItem[];
 }> {
+  const infoKinds = detectGeneralInfoRequests(params.lastUserMessage);
+  if (infoKinds.length > 0) {
+    return buildGeneralInfoResponse(infoKinds);
+  }
+
   const client = getClient();
   const { products, categories, wooNote } = await loadCatalogContext(
     params.intent,
@@ -280,6 +287,72 @@ The server will create a **pending** WooCommerce order; mention that payment is 
     products: cards.length ? cards : undefined,
     quotation,
     orderCreated,
+  };
+}
+
+function detectGeneralInfoRequests(input: string): GeneralInfoItem["kind"][] {
+  const text = input.toLowerCase();
+  const wantsWhatsapp =
+    /\b(whatsapp|wa\.me|phone|mobile|contact number)\b/.test(text) ||
+    /(واتساب|واتس|رقم|تلفون|موبايل)/.test(text);
+  const wantsEmail =
+    /\b(email|e-mail|mail|contact email)\b/.test(text) || /(ايميل|بريد|البريد)/.test(text);
+  const wantsLocation =
+    /\b(location|address|map|google maps|directions|where)\b/.test(text) ||
+    /(لوكيشن|موقع|عنوان|خريطة|وين)/.test(text);
+
+  const kinds: GeneralInfoItem["kind"][] = [];
+  if (wantsWhatsapp) kinds.push("whatsapp");
+  if (wantsEmail) kinds.push("email");
+  if (wantsLocation) kinds.push("location");
+  return kinds;
+}
+
+function buildGeneralInfoResponse(kinds: GeneralInfoItem["kind"][]): {
+  text: string;
+  generalInfo: GeneralInfoItem[];
+} {
+  const whatsappDigits = (process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? "").replace(/\D/g, "");
+  const whatsappUrl = whatsappDigits ? `https://wa.me/${whatsappDigits}` : "https://wa.me/";
+  const email = (process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "").trim();
+  const emailValue = email || "Email not configured yet";
+  const emailUrl = email ? `mailto:${email}` : "mailto:";
+  const mapUrl =
+    (process.env.NEXT_PUBLIC_STORE_MAP_URL ?? "").trim() || "https://maps.google.com/?q=ComputechsLeb";
+  const address = (process.env.NEXT_PUBLIC_STORE_ADDRESS ?? "").trim() || "Open map for store location";
+
+  const cards: GeneralInfoItem[] = [];
+  for (const kind of kinds) {
+    if (kind === "whatsapp") {
+      cards.push({
+        kind,
+        title: "WhatsApp",
+        value: whatsappDigits || "Number not configured yet",
+        url: whatsappUrl,
+        ctaLabel: whatsappDigits ? "Open WhatsApp chat" : "Open WhatsApp",
+      });
+    } else if (kind === "email") {
+      cards.push({
+        kind,
+        title: "Email",
+        value: emailValue,
+        url: emailUrl,
+        ctaLabel: email ? "Send email" : "Email not configured",
+      });
+    } else if (kind === "location") {
+      cards.push({
+        kind,
+        title: "Store location",
+        value: address,
+        url: mapUrl,
+        ctaLabel: "Open map",
+      });
+    }
+  }
+
+  return {
+    text: "Here are our contact details. Tap any card button to open WhatsApp, email, or map directions.",
+    generalInfo: cards,
   };
 }
 
