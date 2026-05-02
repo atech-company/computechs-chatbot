@@ -37,3 +37,4 @@ Tips:
 - Uses route /wordpress-embed (transparent, click-through page + chat bubble only).
 - Session/history stays on the iframe origin (ai subdomain), not on WordPress cookies.
 - If the bubble does not click, purge cache and disable minify on that HTML fragment.
+- If the chat looks unstyled (plain browser defaults), open DevTools inside the iframe, Network tab, reload, and confirm requests to /_next/static/css/ return 200. Fix CDN/hotlink rules or cache if they do not.
