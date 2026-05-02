@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 
 function extractErrorMessage(e: unknown): string {
   if (e instanceof ZodError) {
-    return e.errors.map((x) => `${x.path.join(".")}: ${x.message}`).join("; ");
+    return e.issues.map((x) => `${x.path.join(".")}: ${x.message ?? "(validation)"}`).join("; ");
   }
   if (e instanceof Error) return e.message;
   if (typeof e === "object" && e !== null && "message" in e && typeof (e as { message: unknown }).message === "string") {
