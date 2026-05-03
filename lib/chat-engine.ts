@@ -18,6 +18,19 @@ import type {
 
 const MODEL = process.env.OPENAI_CHAT_MODEL ?? "gpt-4o-mini";
 
+function truncateNotifyDebugSnippet(raw: string, max = 220): string {
+  const single = raw.replace(/\s+/g, " ").trim();
+  return single.length > max ? `${single.slice(0, max)}…` : single;
+}
+
+/** Last store-Wasender error line for optional chat debug (server-only env). */
+function storeWhatsAppErrorSnippet(errors: string[]): string {
+  const line =
+    errors.find((e) => /WhatsApp \(store retry\):/i.test(e)) ||
+    errors.find((e) => /WhatsApp \(store\):/i.test(e));
+  return line ? truncateNotifyDebugSnippet(line) : "";
+}
+
 function getClient(): OpenAI {
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new Error("OPENAI_API_KEY is not set.");
@@ -305,6 +318,14 @@ The server will create a **pending** WooCommerce order; mention that payment is 
                 text += `\n\n⚠️ **Shop WhatsApp** was not sent: set **WHATSAPP_STORE_RECIPIENT** or **STORE_WHATSAPP_NUMBER** on the server (international digits, e.g. 9617…), then restart the app.${emailFallback}`;
               } else if (storeSendFailed) {
                 text += `\n\n⚠️ **Shop WhatsApp** failed to deliver (see Wasender logs). If **WHATSAPP_STORE_RECIPIENT** equals the WhatsApp linked to Wasender, set **WASENDER_STORE_TO** to a **different** staff phone OR **WHATSAPP_STORE_GROUP_JID** to an internal WhatsApp group JID.${emailFallback}`;
+                if (errText.includes("WHATSAPP_STORE_GROUP_JID is set but has no @")) {
+                  text +=
+                    `\n\n💡 Hostinger may **truncate** env values at \`@\`. Set **WHATSAPP_STORE_GROUP_JID** using \`%40g.us\` instead of \`@g.us\`, or wrap the value in quotes, then restart.`;
+                }
+                if (process.env.ORDER_NOTIFY_DEBUG_IN_CHAT === "true") {
+                  const snip = storeWhatsAppErrorSnippet(n.errors);
+                  if (snip) text += `\n\n_(debug)_ ${snip}`;
+                }
               } else {
                 text += `\n\n⚠️ **Shop WhatsApp** did not confirm delivery.${emailFallback}`;
               }
