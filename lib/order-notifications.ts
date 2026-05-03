@@ -1,10 +1,26 @@
 import { isValidEmail } from "@/lib/email-utils";
 
+/** Thrown only from Wasender REST calls; carries rate-limit backoff when status === 429. */
+class WasenderHTTPError extends Error {
+  readonly status: number;
+  readonly retryAfterMs?: number;
+
+  constructor(message: string, status: number, retryAfterMs?: number) {
+    super(message);
+    this.name = "WasenderHTTPError";
+    this.status = status;
+    this.retryAfterMs = retryAfterMs;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
 export type OrderNotifyResult = {
   emailToCustomer: boolean;
   emailToStore: boolean;
   whatsappToCustomer: boolean;
   whatsappToStore: boolean;
+  /** Shop Wasender queued after 429 so the HTTP request does not block ~60s (trial limits). */
+  whatsappToStoreDeferred?: boolean;
   errors: string[];
 };
 
@@ -68,6 +84,13 @@ function storeRecipientValidForMeta(raw: string): boolean {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function wasender429RetryDelayMs(error: unknown): number | null {
+  if (!(error instanceof WasenderHTTPError) || error.status !== 429) return null;
+  const raw = error.retryAfterMs;
+  if (raw == null || !Number.isFinite(raw)) return 65_000;
+  return Math.min(Math.max(Math.ceil(raw), 1000), 120_000);
 }
 
 /** Pause between two Wasender sends (ms). Too short and the 2nd message is often dropped. */
@@ -232,7 +255,27 @@ async function sendWasenderText(apiKey: string, toRaw: string, body: string): Pr
   });
   if (!res.ok) {
     const t = await res.text().catch(() => "");
-    throw new Error(`Wasender HTTP ${res.status}: ${t.slice(0, 200)}`);
+    let retryAfterMs: number | undefined;
+    if (res.status === 429) {
+      try {
+        const j = JSON.parse(t) as { retry_after?: unknown };
+        if (
+          typeof j.retry_after === "number" &&
+          Number.isFinite(j.retry_after) &&
+          j.retry_after >= 0
+        ) {
+          retryAfterMs = Math.min(Math.ceil(j.retry_after * 1000 + 750), 120_000);
+        }
+      } catch {
+        /* ignore malformed body */
+      }
+      if (retryAfterMs === undefined) retryAfterMs = 65_000;
+    }
+    throw new WasenderHTTPError(
+      `Wasender HTTP ${res.status}: ${t.slice(0, 300)}`,
+      res.status,
+      retryAfterMs,
+    );
   }
   const json = (await res.json().catch(() => null)) as { success?: boolean } | null;
   if (json && json.success === false) {
@@ -247,6 +290,23 @@ async function sendOutgoingWhatsApp(toRaw: string, body: string): Promise<void> 
     return;
   }
   await sendWhatsAppCloudText(toRaw.replace(/\D/g, ""), body);
+}
+
+/** Sends after disconnecting from request (long-lived Node on Hostinger); avoids blocking chat during Wasender trial limits. */
+function scheduleWasenderDelayedSend(delayMs: number, toRaw: string, body: string): void {
+  const ms = Math.min(Math.max(delayMs, 500), 120_000);
+  void (async () => {
+    await delay(ms);
+    try {
+      await sendOutgoingWhatsApp(toRaw, body);
+      console.info("[order-notifications] WhatsApp deferred send succeeded.");
+    } catch (err) {
+      console.error(
+        "[order-notifications] WhatsApp deferred send failed:",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  })();
 }
 
 /**
@@ -376,6 +436,20 @@ export async function notifyChatOrderCreated(input: {
       try {
         await attempt();
       } catch (e) {
+        const rateMs = useWasender ? wasender429RetryDelayMs(e) : null;
+        if (rateMs != null) {
+          scheduleWasenderDelayedSend(rateMs, storeTarget, storeMsg);
+          out.whatsappToStoreDeferred = true;
+          const approxSec = Math.max(1, Math.round(rateMs / 1000));
+          out.errors.push(
+            `WhatsApp (store): Wasender rate limit — shop message will retry in ~${approxSec}s (trial: 1 message/minute).`,
+          );
+          console.warn(
+            `[order-notifications] Store WhatsApp deferred ${rateMs}ms after Wasender 429 (trial or plan limit).`,
+          );
+          return;
+        }
+
         const msg = e instanceof Error ? e.message : String(e);
         out.errors.push(`WhatsApp (store): ${msg}`);
         console.error("[order-notifications] WhatsApp store send failed:", msg);
@@ -384,6 +458,17 @@ export async function notifyChatOrderCreated(input: {
           try {
             await attempt();
           } catch (e2) {
+            const rate2 = wasender429RetryDelayMs(e2);
+            if (rate2 != null) {
+              scheduleWasenderDelayedSend(rate2, storeTarget, storeMsg);
+              out.whatsappToStoreDeferred = true;
+              const s = Math.max(1, Math.round(rate2 / 1000));
+              out.errors.push(
+                `WhatsApp (store): Wasender rate limit on retry — shop message deferred ~${s}s.`,
+              );
+              console.warn("[order-notifications] Store WhatsApp deferred after failed inline retry:", rate2);
+              return;
+            }
             const msg2 = e2 instanceof Error ? e2.message : String(e2);
             out.errors.push(`WhatsApp (store retry): ${msg2}`);
             console.error("[order-notifications] WhatsApp store retry failed:", msg2);

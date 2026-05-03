@@ -305,7 +305,10 @@ The server will create a **pending** WooCommerce order; mention that payment is 
             if (sent.length > 0) {
               text += `\n\n📬 Notifications sent: ${sent.join(", ")}.`;
             }
-            if (n.whatsappToCustomer && !n.whatsappToStore) {
+            if (n.whatsappToCustomer && !n.whatsappToStore && n.whatsappToStoreDeferred) {
+              text +=
+                "\n\n⏳ **Shop WhatsApp** is queued: Wasender’s trial allows **about one message per minute**, so your customer message was sent first and the shop alert will follow in roughly a minute. Check server logs for `WhatsApp deferred send succeeded.` Upgrade Wasender for higher limits.";
+            } else if (n.whatsappToCustomer && !n.whatsappToStore) {
               const errText = n.errors.join(" ");
               const storeEnvMissing = errText.includes("Store WhatsApp skipped: set WHATSAPP");
               const storeEnvInvalid = errText.includes("business number looks invalid");
