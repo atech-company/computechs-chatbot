@@ -76,6 +76,21 @@ export function ChatWidget({
     return undefined;
   }, [open, fullscreen]);
 
+  /** In WordPress iframe mode, tell parent when chat opens so parent can resize iframe hit-area. */
+  useEffect(() => {
+    if (!wordpressEmbed) return;
+    if (typeof window === "undefined") return;
+    if (window.parent === window) return;
+    window.parent.postMessage(
+      {
+        type: "computechs-chat:state",
+        open,
+        fullscreen,
+      },
+      "*",
+    );
+  }, [wordpressEmbed, open, fullscreen]);
+
   /** Keep side-effects out of `setOpen` updater (nested setState caused React warnings). */
   useEffect(() => {
     if (open) {
