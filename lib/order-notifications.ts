@@ -16,7 +16,8 @@ function storeBaseUrl(): string {
   return (process.env.WOOCOMMERCE_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/$/, "");
 }
 
-function formatOrderBody(input: {
+type OrderNotifyInput = {
+  orderId: number;
   orderNumber: string;
   productName: string;
   quantity: number;
@@ -24,18 +25,58 @@ function formatOrderBody(input: {
   lastName: string;
   phone: string;
   customerEmail?: string;
-}): string {
+};
+
+/** E.164 for display / Wasender (`+` + digits). */
+function toE164Phone(raw: string): string {
+  let d = raw.replace(/\D/g, "");
+  if (d.startsWith("00")) d = d.slice(2);
+  if (!d) return "";
+  return `+${d}`;
+}
+
+/** Short message for the customer (WhatsApp + email) — no internal ops wording. */
+function formatCustomerOrderMessage(input: OrderNotifyInput): string {
   const name = [input.firstName, input.lastName].filter(Boolean).join(" ").trim() || "Customer";
+  const first = name.split(/\s+/)[0] ?? "";
+  const greeting = first && first !== "Customer" ? `Hi ${first}, thanks for your order!` : "Thank you for your order!";
   const lines = [
+    greeting,
+    "",
     `Order #${input.orderNumber}`,
-    `Product: ${input.productName} × ${input.quantity}`,
-    `Customer: ${name}`,
-    `Phone: ${input.phone}`,
+    `${input.productName} × ${input.quantity}`,
+    "",
+    "Our team will contact you shortly to confirm payment and delivery.",
+    `— ${siteName()}`,
   ];
-  if (input.customerEmail?.trim()) lines.push(`Email: ${input.customerEmail.trim()}`);
+  return lines.join("\n");
+}
+
+/**
+ * Full ops message for the store (WhatsApp + store email) — customer phone first for quick callback.
+ */
+function formatStoreOrderMessage(input: OrderNotifyInput): string {
+  const name = [input.firstName, input.lastName].filter(Boolean).join(" ").trim() || "Customer";
+  const phoneRaw = input.phone.trim();
+  const phoneE164 = toE164Phone(phoneRaw);
+  const phoneLine = phoneE164.length >= 10 ? phoneE164 : phoneRaw;
   const base = storeBaseUrl();
+
+  const lines = [
+    `🛒 NEW ORDER (AI chat) — ${siteName()}`,
+    "",
+    "📞 CUSTOMER NUMBER (call / WhatsApp):",
+    phoneLine,
+    "",
+    `Order #${input.orderNumber} · WooCommerce id: ${input.orderId}`,
+    `Customer name: ${name}`,
+  ];
+  if (input.customerEmail?.trim()) {
+    lines.push(`Email: ${input.customerEmail.trim()}`);
+  }
+  lines.push(`Product: ${input.productName} × ${input.quantity}`);
   if (base) lines.push(`Store: ${base}`);
-  lines.push("Status: pending payment — please confirm with the customer.");
+  lines.push("", "Status: Pending payment — please confirm with the customer.");
   return lines.join("\n");
 }
 
@@ -90,14 +131,6 @@ async function sendWhatsAppCloudText(toDigits: string, body: string): Promise<vo
     const t = await res.text().catch(() => "");
     throw new Error(`WhatsApp API ${res.status}: ${t.slice(0, 200)}`);
   }
-}
-
-/** E.164 for Wasender (`+` + digits). */
-function toE164Phone(raw: string): string {
-  let d = raw.replace(/\D/g, "");
-  if (d.startsWith("00")) d = d.slice(2);
-  if (!d) return "";
-  return `+${d}`;
 }
 
 /**
@@ -164,7 +197,8 @@ export async function notifyChatOrderCreated(input: {
     errors: [],
   };
 
-  const body = formatOrderBody({
+  const payload: OrderNotifyInput = {
+    orderId: input.orderId,
     orderNumber: input.orderNumber,
     productName: input.productName,
     quantity: input.quantity,
@@ -172,7 +206,9 @@ export async function notifyChatOrderCreated(input: {
     lastName: input.lastName,
     phone: input.phone,
     customerEmail: input.customerEmail,
-  });
+  };
+  const customerMsg = formatCustomerOrderMessage(payload);
+  const storeMsg = formatStoreOrderMessage(payload);
 
   const subjectCustomer = `Order #${input.orderNumber} — ${siteName()}`;
   const subjectStore = `New chat order #${input.orderNumber} — ${siteName()}`;
@@ -193,7 +229,7 @@ export async function notifyChatOrderCreated(input: {
           from,
           to: input.customerEmail.trim(),
           subject: subjectCustomer,
-          text: `Thank you — we received your order.\n\n${body}`,
+          text: `${customerMsg}\n\nIf anything looks wrong, reply to this email or contact us with your order number.`,
         });
         out.emailToCustomer = true;
       } catch (e) {
@@ -208,7 +244,7 @@ export async function notifyChatOrderCreated(input: {
           from,
           to: storeInbox,
           subject: subjectStore,
-          text: `New order from AI chat (WooCommerce #${input.orderNumber}, id ${input.orderId}).\n\n${body}`,
+          text: storeMsg,
         });
         out.emailToStore = true;
       } catch (e) {
@@ -238,7 +274,7 @@ export async function notifyChatOrderCreated(input: {
 
     if (notifyCustomer && customerOk) {
       try {
-        await sendOutgoingWhatsApp(customerPhone, body);
+        await sendOutgoingWhatsApp(customerPhone, customerMsg);
         out.whatsappToCustomer = true;
       } catch (e) {
         out.errors.push(`WhatsApp (customer): ${e instanceof Error ? e.message : String(e)}`);
@@ -247,10 +283,7 @@ export async function notifyChatOrderCreated(input: {
 
     if (storeOk) {
       try {
-        await sendOutgoingWhatsApp(
-          storePhone,
-          `New order #${input.orderNumber} (${siteName()})\n${body}`,
-        );
+        await sendOutgoingWhatsApp(storePhone, storeMsg);
         out.whatsappToStore = true;
       } catch (e) {
         out.errors.push(`WhatsApp (store): ${e instanceof Error ? e.message : String(e)}`);
