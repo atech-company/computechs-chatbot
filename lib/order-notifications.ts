@@ -12,6 +12,20 @@ function siteName(): string {
   return process.env.NEXT_PUBLIC_SITE_NAME?.trim() || "Store";
 }
 
+/** Panels sometimes add quotes or encode @ as %40; some truncate at `@` unless quoted. */
+function normalizeWasenderToEnv(raw: string | undefined): string {
+  if (raw == null) return "";
+  let s = raw.trim();
+  if (!s) return "";
+  if (
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
+    s = s.slice(1, -1).trim();
+  }
+  return s.replace(/%40/gi, "@");
+}
+
 /** Business WhatsApp for order alerts (server env preferred so Hostinger doesn’t rely on NEXT_PUBLIC at build time). */
 function resolveStoreWhatsAppNumber(): string {
   return (
@@ -21,6 +35,35 @@ function resolveStoreWhatsAppNumber(): string {
     process.env.NEXT_PUBLIC_WHATSAPP_NUMBER?.trim() ||
     ""
   );
+}
+
+/**
+ * Where to send *shop* order alerts via Wasender: optional raw `to` (another E.164 phone) or WhatsApp group/community JID.
+ * Use when the linked Wasender session cannot DM the business handset (same number).
+ */
+function resolveStoreWhatsAppTarget(): string {
+  const storeTo = normalizeWasenderToEnv(process.env.WASENDER_STORE_TO);
+  if (storeTo) return storeTo;
+  const groupRaw = process.env.WHATSAPP_STORE_GROUP_JID;
+  const group = normalizeWasenderToEnv(groupRaw);
+  // JID must contain @; if the panel stripped everything from @ onward, fall back to phone (and we record an error below).
+  if (groupRaw?.trim() && group.includes("@")) return group;
+  return resolveStoreWhatsAppNumber();
+}
+
+function isWaJidRecipient(raw: string): boolean {
+  return raw.trim().includes("@");
+}
+
+function storeRecipientValidForWasender(raw: string): boolean {
+  if (!raw.trim()) return false;
+  if (isWaJidRecipient(raw)) return raw.trim().length >= 8;
+  return toE164Phone(raw).length >= 10;
+}
+
+function storeRecipientValidForMeta(raw: string): boolean {
+  if (!raw.trim() || isWaJidRecipient(raw)) return false;
+  return raw.replace(/\D/g, "").length >= 8;
 }
 
 function delay(ms: number): Promise<void> {
@@ -168,10 +211,14 @@ async function sendWhatsAppCloudText(toDigits: string, body: string): Promise<vo
 async function sendWasenderText(apiKey: string, toRaw: string, body: string): Promise<void> {
   const endpoint =
     process.env.WASENDER_API_URL?.trim() || "https://www.wasenderapi.com/api/send-message";
-  const to = toE164Phone(toRaw);
-  if (to.length < 10) {
-    throw new Error("Phone number is too short for Wasender (use country code).");
-  }
+  const t = toRaw.trim();
+  const to = isWaJidRecipient(t)
+    ? t
+    : (() => {
+        const e164 = toE164Phone(t);
+        if (e164.length < 10) throw new Error("Phone number is too short for Wasender (use country code).");
+        return e164;
+      })();
   const res = await fetch(endpoint, {
     method: "POST",
     headers: {
@@ -224,6 +271,13 @@ export async function notifyChatOrderCreated(input: {
     whatsappToStore: false,
     errors: [],
   };
+
+  const groupJidEnvRaw = process.env.WHATSAPP_STORE_GROUP_JID?.trim() ?? "";
+  if (groupJidEnvRaw && !normalizeWasenderToEnv(process.env.WHATSAPP_STORE_GROUP_JID).includes("@")) {
+    out.errors.push(
+      "WHATSAPP_STORE_GROUP_JID is set but has no @ (host may have truncated at @). Use a quoted value or suffix %40g.us (e.g. 120363…%40g.us), redeploy, restart.",
+    );
+  }
 
   const payload: OrderNotifyInput = {
     orderId: input.orderId,
@@ -294,37 +348,45 @@ export async function notifyChatOrderCreated(input: {
   if (waConfigured) {
     const notifyCustomer = process.env.WHATSAPP_NOTIFY_CUSTOMER !== "false";
     const customerPhone = input.phone.trim();
-    const storePhone = resolveStoreWhatsAppNumber();
+    const storeTarget = useWasender ? resolveStoreWhatsAppTarget() : resolveStoreWhatsAppNumber();
 
     const customerOk = useWasender ? toE164Phone(customerPhone).length >= 10 : customerPhone.replace(/\D/g, "").length >= 8;
-    const storeOk = useWasender ? toE164Phone(storePhone).length >= 10 : storePhone.replace(/\D/g, "").length >= 8;
+    const storeOk = useWasender ? storeRecipientValidForWasender(storeTarget) : storeRecipientValidForMeta(storeTarget);
 
-    if (!storePhone.trim()) {
+    if (!storeTarget.trim()) {
       out.errors.push(
-        "Store WhatsApp skipped: set WHATSAPP_STORE_RECIPIENT or STORE_WHATSAPP_NUMBER (business number, country code) on the server.",
+        "Store WhatsApp skipped: set WHATSAPP_STORE_RECIPIENT or STORE_WHATSAPP_NUMBER (business number), or WASENDER_STORE_TO / WHATSAPP_STORE_GROUP_JID for Wasender.",
+      );
+    } else if (!useWasender && isWaJidRecipient(storeTarget)) {
+      out.errors.push(
+        "Store WhatsApp skipped: WhatsApp group JID works only with Wasender. Set WHATSAPP_STORE_RECIPIENT (digits + country code) for Meta Cloud, or use WASENDER.",
       );
     } else if (!storeOk) {
       out.errors.push(
-        "Store WhatsApp skipped: business number looks invalid — use full international digits (e.g. 96171234567).",
+        "Store WhatsApp skipped: invalid recipient — use E.164 phone (e.g. 96171234567) or a valid Wasender group JID.",
       );
     }
 
     const sendStore = async () => {
       if (!storeOk) return;
       const attempt = async () => {
-        await sendOutgoingWhatsApp(storePhone, storeMsg);
+        await sendOutgoingWhatsApp(storeTarget, storeMsg);
         out.whatsappToStore = true;
       };
       try {
         await attempt();
       } catch (e) {
-        out.errors.push(`WhatsApp (store): ${e instanceof Error ? e.message : String(e)}`);
+        const msg = e instanceof Error ? e.message : String(e);
+        out.errors.push(`WhatsApp (store): ${msg}`);
+        console.error("[order-notifications] WhatsApp store send failed:", msg);
         if (useWasender) {
           await delay(wasenderRetryDelayMs());
           try {
             await attempt();
           } catch (e2) {
-            out.errors.push(`WhatsApp (store retry): ${e2 instanceof Error ? e2.message : String(e2)}`);
+            const msg2 = e2 instanceof Error ? e2.message : String(e2);
+            out.errors.push(`WhatsApp (store retry): ${msg2}`);
+            console.error("[order-notifications] WhatsApp store retry failed:", msg2);
           }
         }
       }

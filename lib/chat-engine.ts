@@ -304,7 +304,7 @@ The server will create a **pending** WooCommerce order; mention that payment is 
               if (storeEnvMissing || storeEnvInvalid) {
                 text += `\n\n⚠️ **Shop WhatsApp** was not sent: set **WHATSAPP_STORE_RECIPIENT** or **STORE_WHATSAPP_NUMBER** on the server (international digits, e.g. 9617…), then restart the app.${emailFallback}`;
               } else if (storeSendFailed) {
-                text += `\n\n⚠️ **Shop WhatsApp** failed to deliver (see Wasender logs / API error). If **WHATSAPP_STORE_RECIPIENT** is the **same** number as the WhatsApp linked to Wasender, use a **different** staff phone for shop alerts.${emailFallback}`;
+                text += `\n\n⚠️ **Shop WhatsApp** failed to deliver (see Wasender logs). If **WHATSAPP_STORE_RECIPIENT** equals the WhatsApp linked to Wasender, set **WASENDER_STORE_TO** to a **different** staff phone OR **WHATSAPP_STORE_GROUP_JID** to an internal WhatsApp group JID.${emailFallback}`;
               } else {
                 text += `\n\n⚠️ **Shop WhatsApp** did not confirm delivery.${emailFallback}`;
               }
