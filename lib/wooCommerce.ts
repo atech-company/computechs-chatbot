@@ -54,6 +54,26 @@ async function wooGet<T>(path: string, params: Record<string, string | number | 
   return (await res.json()) as T;
 }
 
+async function wooPut<T>(path: string, body: unknown): Promise<T> {
+  if (!isWooConfigured()) {
+    throw new Error("WooCommerce environment variables are not set.");
+  }
+  const res = await fetch(buildUrl(path, {}), {
+    method: "PUT",
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`WooCommerce HTTP ${res.status}: ${text.slice(0, 400)}`);
+  }
+  return (await res.json()) as T;
+}
+
 async function wooPost<T>(path: string, body: unknown): Promise<T> {
   if (!isWooConfigured()) {
     throw new Error("WooCommerce environment variables are not set.");
@@ -176,6 +196,47 @@ export async function fetchProductById(id: number): Promise<WooProductSummary | 
   } catch {
     return null;
   }
+}
+
+/** Order meta rows as returned / sent by WooCommerce REST. */
+export type WooOrderMetaRow = { id?: number; key: string; value: unknown };
+
+export type WooOrderDetail = {
+  id: number;
+  number?: string;
+  status: string;
+  currency: string;
+  total: string;
+  shipping_total?: string;
+  payment_method_title?: string;
+  billing: {
+    first_name: string;
+    last_name: string;
+    email: string;
+    phone: string;
+  };
+  line_items: Array<{ name: string; quantity: number; total: string }>;
+  meta_data?: WooOrderMetaRow[];
+};
+
+/** After staff changes order status (e.g. Pending → Processing), webhooks notify the AI app once. Meta key avoids duplicate pushes. */
+export const APPROVAL_INVOICE_META_KEY = "_computechs_approval_invoice_sent";
+
+export async function fetchOrderById(orderId: number): Promise<WooOrderDetail> {
+  return wooGet<WooOrderDetail>(`orders/${orderId}`, {});
+}
+
+/** Upsert hidden order meta via REST PUT (handles existing meta IDs). */
+export async function upsertOrderMeta(orderId: number, metaKey: string, value: string): Promise<void> {
+  const order = await fetchOrderById(orderId);
+  const rows: WooOrderMetaRow[] = [...(order.meta_data ?? [])];
+  const idx = rows.findIndex((m) => m.key === metaKey);
+  if (idx >= 0) {
+    rows[idx] = { ...rows[idx], key: metaKey, value };
+  } else {
+    rows.push({ key: metaKey, value });
+  }
+  await wooPut(`orders/${orderId}`, { meta_data: rows });
 }
 
 export async function fetchCategories(limit = 50): Promise<{ id: number; name: string; slug: string }[]> {

@@ -67,6 +67,11 @@ function resolveStoreWhatsAppTarget(): string {
   return resolveStoreWhatsAppNumber();
 }
 
+/** Exported for WooCommerce webhook (store WhatsApp invoice copy). Same resolution as chat order alerts. */
+export function getStoreWhatsAppDeliverTarget(): string {
+  return resolveStoreWhatsAppTarget();
+}
+
 function isWaJidRecipient(raw: string): boolean {
   return raw.trim().includes("@");
 }
@@ -91,6 +96,11 @@ function wasender429RetryDelayMs(error: unknown): number | null {
   const raw = error.retryAfterMs;
   if (raw == null || !Number.isFinite(raw)) return 65_000;
   return Math.min(Math.max(Math.ceil(raw), 1000), 120_000);
+}
+
+/** For non-chat flows (e.g. Woo webhook) to defer second Wasender send on trial rate limits. */
+export function getWasender429RetryMs(error: unknown): number | null {
+  return wasender429RetryDelayMs(error);
 }
 
 /** Pause between two Wasender sends (ms). Too short and the 2nd message is often dropped. */
@@ -174,25 +184,30 @@ function formatStoreOrderMessage(input: OrderNotifyInput): string {
   return lines.join("\n");
 }
 
-async function sendResendEmail(params: {
+export async function sendTransactionalResend(params: {
   apiKey: string;
   from: string;
   to: string;
   subject: string;
   text: string;
+  html?: string;
+  bcc?: string[];
 }): Promise<void> {
+  const payload: Record<string, unknown> = {
+    from: params.from,
+    to: [params.to],
+    subject: params.subject,
+    text: params.text,
+  };
+  if (params.html?.trim()) payload.html = params.html.trim();
+  if (params.bcc?.length) payload.bcc = params.bcc;
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${params.apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      from: params.from,
-      to: [params.to],
-      subject: params.subject,
-      text: params.text,
-    }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     const t = await res.text().catch(() => "");
@@ -283,6 +298,11 @@ async function sendWasenderText(apiKey: string, toRaw: string, body: string): Pr
   }
 }
 
+/** Wasender-first WhatsApp/outbound Meta for order flows outside chat (e.g. Woo approval webhook). */
+export async function deliverOrderWhatsApp(toRaw: string, body: string): Promise<void> {
+  await sendOutgoingWhatsApp(toRaw, body);
+}
+
 async function sendOutgoingWhatsApp(toRaw: string, body: string): Promise<void> {
   const wasenderKey = process.env.WASENDER_API_KEY?.trim();
   if (wasenderKey) {
@@ -366,7 +386,7 @@ export async function notifyChatOrderCreated(input: {
 
     if (input.customerEmail && isValidEmail(input.customerEmail)) {
       try {
-        await sendResendEmail({
+        await sendTransactionalResend({
           apiKey: resendKey,
           from,
           to: input.customerEmail.trim(),
@@ -381,7 +401,7 @@ export async function notifyChatOrderCreated(input: {
 
     if (storeInbox && isValidEmail(storeInbox)) {
       try {
-        await sendResendEmail({
+        await sendTransactionalResend({
           apiKey: resendKey,
           from,
           to: storeInbox,
