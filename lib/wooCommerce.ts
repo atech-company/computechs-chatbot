@@ -1,4 +1,5 @@
 import type { WooProductSummary } from "@/types/chat";
+import { isValidEmail } from "@/lib/email-utils";
 
 const STORE = () => process.env.WOOCOMMERCE_URL?.replace(/\/$/, "") ?? "";
 const KEY = () => process.env.WOOCOMMERCE_CONSUMER_KEY ?? "";
@@ -86,7 +87,9 @@ export async function createOrderFromChat(params: {
   firstName: string;
   lastName: string;
   phone: string;
-}): Promise<{ id: number; number: string }> {
+  /** When valid, used as WooCommerce billing email (and for customer notifications). */
+  customerEmail?: string;
+}): Promise<{ id: number; number: string; productName: string }> {
   const product = await fetchProductById(params.productId);
   if (!product) {
     throw new Error("Product not found or not available.");
@@ -98,6 +101,11 @@ export async function createOrderFromChat(params: {
     throw new Error("Phone number looks too short.");
   }
 
+  const billingEmail =
+    params.customerEmail && isValidEmail(params.customerEmail)
+      ? params.customerEmail.trim().slice(0, 120)
+      : CHAT_ORDER_EMAIL();
+
   const body = {
     status: "pending",
     payment_method: "other",
@@ -106,7 +114,7 @@ export async function createOrderFromChat(params: {
     billing: {
       first_name: params.firstName.trim().slice(0, 100) || "Customer",
       last_name: params.lastName.trim().slice(0, 100) || "-",
-      email: CHAT_ORDER_EMAIL(),
+      email: billingEmail,
       phone: params.phone.trim().slice(0, 60),
     },
     line_items: [{ product_id: params.productId, quantity: qty }],
@@ -117,6 +125,7 @@ export async function createOrderFromChat(params: {
   return {
     id: raw.id,
     number: String(raw.number ?? raw.id),
+    productName: product.name,
   };
 }
 

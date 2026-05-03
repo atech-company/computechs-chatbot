@@ -6,6 +6,8 @@ import {
   fetchProducts,
   isWooConfigured,
 } from "@/lib/wooCommerce";
+import { isValidEmail } from "@/lib/email-utils";
+import { notifyChatOrderCreated } from "@/lib/order-notifications";
 import type {
   GeneralInfoItem,
   Intent,
@@ -212,10 +214,10 @@ QUOTATION_JSON:{"customerName":string|null,"currency":"USD"|"EUR"|"LBP"|string,"
 Compute lineTotal = quantity*unitPrice and subtotal = sum(lineTotal). Use WooCommerce prices from catalog when productId matches. If unknown customer name use null.`;
   } else {
     instruction = `Intent: ACTION (place order in WooCommerce).
-Guide step-by-step: which product (must match catalog JSON by id + name), quantity, customer full name (split into first/last if known), phone (with country code when possible).
+Guide step-by-step: which product (must match catalog JSON by id + name), quantity, customer full name (split into first/last if known), phone (with country code when possible), and **email** for order confirmation.
 Ask one missing field per turn. Use only real product ids from catalog JSON.
-When—and only when—you have productId, quantity (1–50), firstName, lastName (use "" if unknown), and phone, finish with a short thank-you line and add EXACTLY one final machine-readable line (no markdown fences):
-ORDER_JSON:{"productId":number,"quantity":number,"firstName":string,"lastName":string,"phone":string}
+When—and only when—you have productId, quantity (1–50), firstName, lastName (use "" if unknown), phone, and email (valid address), finish with a short thank-you line and add EXACTLY one final machine-readable line (no markdown fences):
+ORDER_JSON:{"productId":number,"quantity":number,"firstName":string,"lastName":string,"phone":string,"email":string}
 The server will create a **pending** WooCommerce order; mention that payment is still required. Do not output ORDER_JSON until all fields are confirmed.`;
   }
 
@@ -249,20 +251,67 @@ The server will create a **pending** WooCommerce order; mention that payment is 
       const firstName = typeof orderPayload.firstName === "string" ? orderPayload.firstName : "";
       const lastName = typeof orderPayload.lastName === "string" ? orderPayload.lastName : "";
       const phone = typeof orderPayload.phone === "string" ? orderPayload.phone : "";
-      if (Number.isFinite(pid) && pid > 0 && Number.isFinite(qty) && firstName.trim() && phone.trim()) {
+      const emailRaw = typeof orderPayload.email === "string" ? orderPayload.email.trim() : "";
+      const customerEmail = emailRaw && isValidEmail(emailRaw) ? emailRaw : undefined;
+      if (
+        Number.isFinite(pid) &&
+        pid > 0 &&
+        Number.isFinite(qty) &&
+        firstName.trim() &&
+        phone.trim() &&
+        customerEmail
+      ) {
         try {
-          orderCreated = await createOrderFromChat({
+          const created = await createOrderFromChat({
             productId: pid,
             quantity: qty,
             firstName: firstName.trim(),
             lastName: lastName.trim(),
             phone: phone.trim(),
+            customerEmail,
           });
-          text += `\n\n✅ WooCommerce **order #${orderCreated.number}** was created (pending payment). Our team may contact you to confirm.`;
+          orderCreated = { id: created.id, number: created.number };
+          text += `\n\n✅ WooCommerce **order #${created.number}** was created (pending payment). Our team may contact you to confirm.`;
+
+          try {
+            const n = await notifyChatOrderCreated({
+              orderId: created.id,
+              orderNumber: created.number,
+              productName: created.productName,
+              quantity: qty,
+              firstName: firstName.trim(),
+              lastName: lastName.trim(),
+              phone: phone.trim(),
+              customerEmail,
+            });
+            const sent: string[] = [];
+            if (n.emailToCustomer) sent.push("confirmation email");
+            if (n.emailToStore) sent.push("store email");
+            if (n.whatsappToCustomer) sent.push("your WhatsApp");
+            if (n.whatsappToStore) sent.push("store WhatsApp");
+            if (sent.length > 0) {
+              text += `\n\n📬 Notifications sent: ${sent.join(", ")}.`;
+            }
+            if (process.env.NODE_ENV === "development" && n.errors.length > 0) {
+              text += `\n\n[dev] Notify: ${n.errors.join(" | ")}`;
+            }
+          } catch (notifyErr) {
+            if (process.env.NODE_ENV === "development") {
+              text += `\n\n[dev] Notify failed: ${notifyErr instanceof Error ? notifyErr.message : String(notifyErr)}`;
+            }
+          }
         } catch (e) {
           const hint = e instanceof Error ? e.message : "Error";
           text += `\n\n⚠️ Could not create the order automatically (${hint}). Please check out on the website or call the store.`;
         }
+      } else if (
+        orderPayload &&
+        isWooConfigured() &&
+        Number.isFinite(pid) &&
+        pid > 0 &&
+        (!customerEmail || !firstName.trim() || !phone.trim())
+      ) {
+        text += `\n\n⚠️ To complete the order I still need a valid **email** for confirmations (and name + phone).`;
       }
     } else if (orderPayload && !isWooConfigured()) {
       text += `\n\n⚠️ Orders cannot be created automatically because WooCommerce API is not configured on the server.`;
@@ -383,6 +432,7 @@ type OrderJsonParsed = {
   firstName?: string;
   lastName?: string;
   phone?: string;
+  email?: string;
 };
 
 function stripQuotationJsonLine(text: string): string {
