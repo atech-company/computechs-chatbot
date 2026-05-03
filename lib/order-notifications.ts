@@ -27,6 +27,19 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Pause between two Wasender sends (ms). Too short and the 2nd message is often dropped. */
+function wasenderBetweenMessagesMs(): number {
+  const n = Number(process.env.WASENDER_BETWEEN_MESSAGES_MS ?? "3500");
+  if (!Number.isFinite(n) || n < 0) return 3500;
+  return Math.min(Math.floor(n), 20000);
+}
+
+function wasenderRetryDelayMs(): number {
+  const n = Number(process.env.WASENDER_RETRY_DELAY_MS ?? process.env.WASENDER_CUSTOMER_RETRY_DELAY_MS ?? "3500");
+  if (!Number.isFinite(n) || n < 0) return 3500;
+  return Math.min(Math.floor(n), 20000);
+}
+
 function storeBaseUrl(): string {
   return (process.env.WOOCOMMERCE_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/$/, "");
 }
@@ -298,37 +311,61 @@ export async function notifyChatOrderCreated(input: {
 
     const sendStore = async () => {
       if (!storeOk) return;
-      try {
+      const attempt = async () => {
         await sendOutgoingWhatsApp(storePhone, storeMsg);
         out.whatsappToStore = true;
+      };
+      try {
+        await attempt();
       } catch (e) {
         out.errors.push(`WhatsApp (store): ${e instanceof Error ? e.message : String(e)}`);
+        if (useWasender) {
+          await delay(wasenderRetryDelayMs());
+          try {
+            await attempt();
+          } catch (e2) {
+            out.errors.push(`WhatsApp (store retry): ${e2 instanceof Error ? e2.message : String(e2)}`);
+          }
+        }
       }
     };
 
-    const sendCustomer = async () => {
+    const sendCustomer = async (opts?: { wasenderRetry: boolean }) => {
       if (!notifyCustomer || !customerOk) return;
-      try {
+      const attempt = async () => {
         await sendOutgoingWhatsApp(customerPhone, customerMsg);
         out.whatsappToCustomer = true;
+      };
+      try {
+        await attempt();
       } catch (e) {
         out.errors.push(`WhatsApp (customer): ${e instanceof Error ? e.message : String(e)}`);
+        if (opts?.wasenderRetry && useWasender) {
+          await delay(wasenderRetryDelayMs());
+          try {
+            await attempt();
+          } catch (e2) {
+            out.errors.push(`WhatsApp (customer retry): ${e2 instanceof Error ? e2.message : String(e2)}`);
+          }
+        }
       }
     };
 
     /*
-     * Wasender: send the store alert first, then a short pause, then the customer.
-     * Some sessions drop or rate-limit back-to-back sends; owners were missing the second (store) message when customer was sent first.
-     * Meta Cloud: keep customer-first order (unchanged behavior).
+     * Wasender: store alert first, then a longer pause, then customer (with one retry if customer fails).
+     * Many sessions rate-limit or drop the second message if the gap is only a few hundred ms.
+     * Meta Cloud: customer first, then store (unchanged).
      */
     if (useWasender) {
       await sendStore();
       if (storeOk && notifyCustomer && customerOk) {
-        await delay(550);
+        await delay(wasenderBetweenMessagesMs());
+      } else if (!storeOk && notifyCustomer && customerOk) {
+        await delay(500);
       }
-      await sendCustomer();
+      await sendCustomer({ wasenderRetry: true });
     } else {
-      await sendCustomer();
+      await sendCustomer({ wasenderRetry: false });
       await sendStore();
     }
   }
