@@ -352,18 +352,20 @@ export async function notifyChatOrderCreated(input: {
     };
 
     /*
-     * Wasender: store alert first, then a longer pause, then customer (with one retry if customer fails).
-     * Many sessions rate-limit or drop the second message if the gap is only a few hundred ms.
+     * Wasender: customer confirmation first (many sessions drop the *second* outbound; shop was getting
+     * alerts while shoppers did not when store was sent first). Then pause, then store alert. Both paths retry once on failure.
      * Meta Cloud: customer first, then store (unchanged).
      */
     if (useWasender) {
-      await sendStore();
-      if (storeOk && notifyCustomer && customerOk) {
-        await delay(wasenderBetweenMessagesMs());
-      } else if (!storeOk && notifyCustomer && customerOk) {
-        await delay(500);
+      if (notifyCustomer && customerOk) {
+        await sendCustomer({ wasenderRetry: true });
       }
-      await sendCustomer({ wasenderRetry: true });
+      if (storeOk) {
+        if (notifyCustomer && customerOk) {
+          await delay(wasenderBetweenMessagesMs());
+        }
+        await sendStore();
+      }
     } else {
       await sendCustomer({ wasenderRetry: false });
       await sendStore();
