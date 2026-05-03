@@ -12,6 +12,21 @@ function siteName(): string {
   return process.env.NEXT_PUBLIC_SITE_NAME?.trim() || "Store";
 }
 
+/** Business WhatsApp for order alerts (server env preferred so Hostinger doesn’t rely on NEXT_PUBLIC at build time). */
+function resolveStoreWhatsAppNumber(): string {
+  return (
+    process.env.WHATSAPP_STORE_RECIPIENT?.trim() ||
+    process.env.STORE_WHATSAPP_NUMBER?.trim() ||
+    process.env.WASENDER_STORE_WHATSAPP?.trim() ||
+    process.env.NEXT_PUBLIC_WHATSAPP_NUMBER?.trim() ||
+    ""
+  );
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function storeBaseUrl(): string {
   return (process.env.WOOCOMMERCE_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/$/, "");
 }
@@ -266,28 +281,55 @@ export async function notifyChatOrderCreated(input: {
   if (waConfigured) {
     const notifyCustomer = process.env.WHATSAPP_NOTIFY_CUSTOMER !== "false";
     const customerPhone = input.phone.trim();
-    const storePhone =
-      process.env.WHATSAPP_STORE_RECIPIENT?.trim() || process.env.NEXT_PUBLIC_WHATSAPP_NUMBER?.trim() || "";
+    const storePhone = resolveStoreWhatsAppNumber();
 
     const customerOk = useWasender ? toE164Phone(customerPhone).length >= 10 : customerPhone.replace(/\D/g, "").length >= 8;
     const storeOk = useWasender ? toE164Phone(storePhone).length >= 10 : storePhone.replace(/\D/g, "").length >= 8;
 
-    if (notifyCustomer && customerOk) {
-      try {
-        await sendOutgoingWhatsApp(customerPhone, customerMsg);
-        out.whatsappToCustomer = true;
-      } catch (e) {
-        out.errors.push(`WhatsApp (customer): ${e instanceof Error ? e.message : String(e)}`);
-      }
+    if (!storePhone.trim()) {
+      out.errors.push(
+        "Store WhatsApp skipped: set WHATSAPP_STORE_RECIPIENT or STORE_WHATSAPP_NUMBER (business number, country code) on the server.",
+      );
+    } else if (!storeOk) {
+      out.errors.push(
+        "Store WhatsApp skipped: business number looks invalid — use full international digits (e.g. 96171234567).",
+      );
     }
 
-    if (storeOk) {
+    const sendStore = async () => {
+      if (!storeOk) return;
       try {
         await sendOutgoingWhatsApp(storePhone, storeMsg);
         out.whatsappToStore = true;
       } catch (e) {
         out.errors.push(`WhatsApp (store): ${e instanceof Error ? e.message : String(e)}`);
       }
+    };
+
+    const sendCustomer = async () => {
+      if (!notifyCustomer || !customerOk) return;
+      try {
+        await sendOutgoingWhatsApp(customerPhone, customerMsg);
+        out.whatsappToCustomer = true;
+      } catch (e) {
+        out.errors.push(`WhatsApp (customer): ${e instanceof Error ? e.message : String(e)}`);
+      }
+    };
+
+    /*
+     * Wasender: send the store alert first, then a short pause, then the customer.
+     * Some sessions drop or rate-limit back-to-back sends; owners were missing the second (store) message when customer was sent first.
+     * Meta Cloud: keep customer-first order (unchanged behavior).
+     */
+    if (useWasender) {
+      await sendStore();
+      if (storeOk && notifyCustomer && customerOk) {
+        await delay(550);
+      }
+      await sendCustomer();
+    } else {
+      await sendCustomer();
+      await sendStore();
     }
   }
 

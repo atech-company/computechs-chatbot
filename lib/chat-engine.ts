@@ -292,6 +292,9 @@ The server will create a **pending** WooCommerce order; mention that payment is 
             if (sent.length > 0) {
               text += `\n\n📬 Notifications sent: ${sent.join(", ")}.`;
             }
+            if (n.whatsappToCustomer && !n.whatsappToStore) {
+              text += `\n\n⚠️ The **shop** WhatsApp did not get the order details. Set **WHATSAPP_STORE_RECIPIENT** or **STORE_WHATSAPP_NUMBER** on the server (your business number). If it is already set: many WhatsApp APIs cannot deliver to the **same** number as the sending session — use a different owner/staff number for alerts, or rely on store email.`;
+            }
             if (process.env.NODE_ENV === "development" && n.errors.length > 0) {
               text += `\n\n[dev] Notify: ${n.errors.join(" | ")}`;
             }
